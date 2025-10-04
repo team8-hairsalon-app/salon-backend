@@ -1,5 +1,7 @@
 from django.urls import include, path
+from django.contrib import admin
 
 urlpatterns = [
-    path("", include("salon.api.urls")),
+    path("admin/", admin.site.urls),
+    path("api/", include("salon.api.urls")),
 ]
