@@ -11,9 +11,9 @@ import dj_database_url as db_url
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-
-DEBUG = config("DEBUG", default=False, cast=bool)
-SECRET_KEY = config("SECRET_KEY", default="change-me-in-prod")
+# Read DEBUG / SECRET from either DJANGO_* or the plain names (fallback)
+DEBUG = config("DJANGO_DEBUG", default=config("DEBUG", default=False, cast=bool), cast=bool)
+SECRET_KEY = config("DJANGO_SECRET_KEY", default=config("SECRET_KEY", default="change-me-in-prod"))
 ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="127.0.0.1,localhost", cast=Csv())
 
 INSTALLED_APPS = [
@@ -61,10 +61,11 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "salon.wsgi.application"
 
-# --- Database: Postgres via DATABASE_URL
-# Example .env value: postgresql://salon_user:salon_pass@localhost:5432/salon_db
+# --- Database: Postgres via DATABASE_URL (falls back to SQLite)
 DATABASES = {
-    "default": db_url.parse(config("DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}")),
+    "default": db_url.parse(
+        config("DATABASE_URL", default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}")
+    ),
 }
 
 # Password validation
@@ -79,8 +80,10 @@ LANGUAGE_CODE = "en-us"
 TIME_ZONE = "America/New_York"
 USE_TZ = True
 
-STATIC_ROOT = BASE_DIR / "staticfiles"
-STATIC_URL = "static/" 
+# --- Static Files ---
+STATIC_URL = "/static/"  # ✅ Must start and end with a slash
+STATICFILES_DIRS = [BASE_DIR / "api" / "static"]  # ✅ Points to salon/api/static
+STATIC_ROOT = BASE_DIR / "staticfiles"  # ✅ Where collectstatic will dump files for production
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -93,7 +96,6 @@ REST_FRAMEWORK = {
     "DEFAULT_PARSER_CLASSES": [
         "rest_framework.parsers.JSONParser",
     ],
-   
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.SessionAuthentication",
         "rest_framework.authentication.BasicAuthentication",
@@ -101,7 +103,6 @@ REST_FRAMEWORK = {
     "DEFAULT_FILTER_BACKENDS": [
         "django_filters.rest_framework.DjangoFilterBackend",
     ],
-    # Uncomment to enable page-number pagination by default:
     # "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     # "PAGE_SIZE": 25,
 }
@@ -112,6 +113,9 @@ if DEBUG:
         "rest_framework.renderers.BrowsableAPIRenderer"
     )
 
+# --- CORS / CSRF ---
+# Allow explicit origins (comma-separated) OR enable allow-all via env toggle
+CORS_ALLOW_ALL_ORIGINS = config("CORS_ALLOW_ALL_ORIGINS", default=False, cast=bool)
 CORS_ALLOWED_ORIGINS = config("CORS_ORIGINS", default="", cast=Csv())
 CORS_ALLOWED_ORIGIN_REGEXES = config("CORS_ORIGINS_REGEX", default="", cast=Csv())
 CORS_ALLOW_CREDENTIALS = config("CORS_ALLOW_CREDENTIALS", default=True, cast=bool)

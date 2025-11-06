@@ -12,3 +12,4 @@ setuptools==80.9.0
 sqlparse==0.5.3
 typing_extensions==4.15.0
 wheel==0.45.1
+django-model-utils>=4.5.0
