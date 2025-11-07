@@ -9,6 +9,7 @@ from decouple import Csv, config
 import dj_database_url as db_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
+# This resolves to your repo root (same level as manage.py)
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Read DEBUG / SECRET from either DJANGO_* or the plain names (fallback)
@@ -81,9 +82,11 @@ TIME_ZONE = "America/New_York"
 USE_TZ = True
 
 # --- Static Files ---
-STATIC_URL = "/static/"  # ✅ Must start and end with a slash
-STATICFILES_DIRS = [BASE_DIR / "api" / "static"]  # ✅ Points to salon/api/static
-STATIC_ROOT = BASE_DIR / "staticfiles"  # ✅ Where collectstatic will dump files for production
+STATIC_URL = "/static/"
+# 🔧 FIX: point to salon/api/static (your screenshot shows this path)
+STATICFILES_DIRS = [BASE_DIR / "salon" / "api" / "static"]
+# where collectstatic will output files in CI/prod
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -114,7 +117,6 @@ if DEBUG:
     )
 
 # --- CORS / CSRF ---
-# Allow explicit origins (comma-separated) OR enable allow-all via env toggle
 CORS_ALLOW_ALL_ORIGINS = config("CORS_ALLOW_ALL_ORIGINS", default=False, cast=bool)
 CORS_ALLOWED_ORIGINS = config("CORS_ORIGINS", default="", cast=Csv())
 CORS_ALLOWED_ORIGIN_REGEXES = config("CORS_ORIGINS_REGEX", default="", cast=Csv())
