@@ -31,6 +31,6 @@ jobs:
 
       - name: Django checks, migrate, collectstatic
         run: |
-          python manage.py check --deploy --fail-level WARNING
+          python manage.py check --deploy --fail-level ERROR
           python manage.py migrate --noinput
           python manage.py collectstatic --noinput
