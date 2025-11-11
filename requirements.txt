@@ -1,21 +1,20 @@
 asgiref==3.9.1
+brotli==1.2.0
 dj-database-url==3.0.1
 Django==5.2.6
 django-cors-headers==4.9.0
 django-filter==25.1
+django-model-utils==5.0.0
 djangorestframework==3.16.1
-
-# Postgres (psycopg3 binary wheels)
+gunicorn==23.0.0
+packaging==25.0
+psycopg==3.2.10
 psycopg-binary==3.2.10
-
+psycopg2-binary==2.9.9
 python-decouple==3.8
 python-dotenv==1.1.1
 setuptools==80.9.0
 sqlparse==0.5.3
 typing_extensions==4.15.0
 wheel==0.45.1
-django-model-utils>=4.5.0
-
-# Add these for production serving on Render/Heroku
-gunicorn
-whitenoise[brotli]
+whitenoise==6.11.0
