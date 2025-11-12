@@ -1,2 +1,36 @@
+# Environment and secrets
+.env
+*.env
+replacements.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.py.class
+
+# Virtual environments
+venv/
+env/
+.venv/
+ENV/
+
+# Django / Database
+db.sqlite3
+media/
+staticfiles/
+*.log
+
+# IDEs / Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# System files
+.DS_Store
+Thumbs.db
 .env
 replacements.txt
