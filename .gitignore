@@ -1,18 +1,2 @@
-# Python / Django
-__pycache__/
-*.py[cod]
-.Python
-db.sqlite3
-
-# Envs / IDE
 .env
-.env.*
-venv/
-.venv/
-.idea/
-.vscode/
-
-# Builds
-build/
-dist/
-*.egg-info/
+replacements.txt
