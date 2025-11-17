@@ -15,3 +15,4 @@ wheel==0.45.1
 django-model-utils>=4.5.0
 gunicorn
 whitenoise[brotli]
+stripe
