@@ -4,6 +4,7 @@ Django==5.2.6
 django-cors-headers==4.9.0
 django-filter==25.1
 djangorestframework==3.16.1
+djangorestframework-simplejwt
 psycopg[binary]==3.2.10
 python-decouple==3.8
 python-dotenv==1.1.1
@@ -14,3 +15,4 @@ wheel==0.45.1
 django-model-utils>=4.5.0
 gunicorn
 whitenoise[brotli]
+stripe
