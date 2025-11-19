@@ -7,16 +7,32 @@ from .models import Style, Appointment, Profile
 # ---------- Register ----------
 class RegisterSerializer(serializers.ModelSerializer):
     """
-    Create a Django user. Email is unique; if username isn't provided,
-    default username = email.
+    Create a Django user + related Profile.
+
+    Extra fields:
+      - dob   -> Profile.dob
+      - phone -> Profile.phone_number
     """
     password = serializers.CharField(write_only=True, min_length=8)
     email = serializers.EmailField()
     username = serializers.CharField(required=False, allow_blank=True)
 
+    # extra fields that will go into Profile
+    dob = serializers.DateField(required=False, allow_null=True)
+    phone = serializers.CharField(required=False, allow_blank=True)
+
     class Meta:
         model = User
-        fields = ("id", "username", "email", "password", "first_name", "last_name")
+        fields = (
+            "id",
+            "username",
+            "email",
+            "password",
+            "first_name",
+            "last_name",
+            "dob",
+            "phone",
+        )
 
     def validate_email(self, value: str) -> str:
         email = value.strip().lower()
@@ -27,6 +43,10 @@ class RegisterSerializer(serializers.ModelSerializer):
         return email
 
     def create(self, validated_data):
+        # pull profile-related fields out first
+        dob = validated_data.pop("dob", None)
+        phone = validated_data.pop("phone", "")
+
         username = validated_data.get("username") or validated_data["email"]
         email = validated_data["email"].strip().lower()
         first_name = validated_data.get("first_name", "")
@@ -41,7 +61,18 @@ class RegisterSerializer(serializers.ModelSerializer):
         )
         user.set_password(password)
         user.save()
+
+        # create / update the related Profile with extra info
+        Profile.objects.update_or_create(
+            user=user,
+            defaults={
+                "dob": dob,
+                "phone_number": phone or "",
+            },
+        )
+
         return user
+
 
 # ---------- Profile (current user) ----------
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -53,15 +84,27 @@ class UserProfileSerializer(serializers.ModelSerializer):
       - preferred_stylist  <-> profile.preferred_stylist
     Email is read-only here.
     """
-    dob = serializers.DateField(source="profile.dob", required=False, allow_null=True)
-    phone = serializers.CharField(source="profile.phone_number", required=False, allow_blank=True)
+    dob = serializers.DateField(
+        source="profile.dob", required=False, allow_null=True
+    )
+    phone = serializers.CharField(
+        source="profile.phone_number", required=False, allow_blank=True
+    )
     preferred_stylist = serializers.CharField(
         source="profile.preferred_stylist", required=False, allow_blank=True
     )
 
     class Meta:
         model = User
-        fields = ("id", "first_name", "last_name", "email", "dob", "phone", "preferred_stylist")
+        fields = (
+            "id",
+            "first_name",
+            "last_name",
+            "email",
+            "dob",
+            "phone",
+            "preferred_stylist",
+        )
         read_only_fields = ("email",)
 
     def update(self, instance, validated_data):
@@ -86,11 +129,13 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
         return instance
 
+
 # ---------- Styles ----------
 class StyleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Style
         fields = "__all__"
+
 
 # ---------- Appointments ----------
 class AppointmentSerializer(serializers.ModelSerializer):
@@ -99,6 +144,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
 
     # Extra fields so the UI can render the badge & price correctly
     is_paid = serializers.SerializerMethodField()
+    payment_status = serializers.SerializerMethodField()  # "paid" / "unpaid"
     amount = serializers.SerializerMethodField()
     style_price_min = serializers.DecimalField(
         source="style.price_min", max_digits=8, decimal_places=2, read_only=True
@@ -121,6 +167,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
             "created_at",
             # extra
             "is_paid",
+            "payment_status",
             "amount",
             "style_price_min",
         )
@@ -138,15 +185,19 @@ class AppointmentSerializer(serializers.ModelSerializer):
             pass
         return str(getattr(obj, "status", "")).lower() == "paid"
 
+    def get_payment_status(self, obj):
+        """
+        Normalized string for the frontend badge.
+        """
+        return "paid" if self.get_is_paid(obj) else "unpaid"
+
     def get_amount(self, obj):
         """
         Return appointment.amount if your model has it; otherwise fall back
         to the style's minimum price so the UI can always show a number.
         """
-        # Appointment-level amount (if present on your model)
         if hasattr(obj, "amount") and getattr(obj, "amount") is not None:
             return obj.amount
-        # Fallback to style price_min
         style = getattr(obj, "style", None)
         return getattr(style, "price_min", None)
 
@@ -165,16 +216,15 @@ class AppointmentSerializer(serializers.ModelSerializer):
         email = (attrs.get("contact_email") or "").strip().lower()
         phone = (attrs.get("contact_phone") or "").strip()
 
-        # Normalize back ('' -> None) so conditional unique constraints work
         attrs["contact_email"] = email or None
 
         # Auto-fill for signed-in users (snapshot)
         if user and getattr(user, "is_authenticated", False):
-            if not name:
-                name = (f"{user.first_name} {user.last_name}").strip() or user.username
-                attrs["contact_name"] = name
-            if not email and user.email:
-                attrs["contact_email"] = user.email.strip().lower()
+          if not name:
+              name = (f"{user.first_name} {user.last_name}").strip() or user.username
+              attrs["contact_name"] = name
+          if not email and user.email:
+              attrs["contact_email"] = user.email.strip().lower()
 
         if not name:
             raise serializers.ValidationError({"contact_name": "Please provide your name."})
