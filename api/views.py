@@ -31,6 +31,7 @@ from .serializers import (
 )
 from .models import Style, Appointment
 from .notifications import send_booking_confirmation, send_payment_confirmation
+import os
 
 # ---------------- AUTH ----------------
 
