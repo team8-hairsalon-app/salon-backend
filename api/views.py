@@ -210,7 +210,7 @@ class MeProfileView(generics.RetrieveUpdateAPIView):
 
 # ---------------- STRIPE PAYMENT ----------------
 
-stripe.api_key = getattr(settings, "STRIPE_SECRET_KEY", None)
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
 
 def _frontend_base_url() -> str:
@@ -306,7 +306,7 @@ def create_checkout_session(request, appointment_id: int):
 
 @api_view(["POST"])
 def stripe_webhook(request):
-    webhook_secret = getattr(settings, "STRIPE_WEBHOOK_SECRET", None)
+    webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET")
     if not webhook_secret:
         return HttpResponse(status=400)
 
