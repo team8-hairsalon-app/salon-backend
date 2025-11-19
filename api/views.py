@@ -34,9 +34,11 @@ from .notifications import send_booking_confirmation, send_payment_confirmation
 
 # ---------------- AUTH ----------------
 
+
 class RegisterView(generics.CreateAPIView):
     permission_classes = [permissions.AllowAny]
     serializer_class = RegisterSerializer
+
 
 class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
@@ -56,13 +58,17 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
                 pass
         return super().validate(attrs)
 
+
 class MyTokenObtainPairView(TokenObtainPairView):
     serializer_class = MyTokenObtainPairSerializer
+
 
 class MyTokenRefreshView(TokenRefreshView):
     pass
 
+
 # ---------------- STYLES ----------------
+
 
 class StyleViewSet(viewsets.ModelViewSet):
     queryset = Style.objects.all().order_by("name")
@@ -70,7 +76,9 @@ class StyleViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
 
+
 # ---------------- APPOINTMENTS ----------------
+
 
 class AppointmentViewSet(viewsets.ModelViewSet):
     """
@@ -78,6 +86,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
     - Authenticated users can list/view/modify their own.
     - Staff can view all.
     """
+
     serializer_class = AppointmentSerializer
 
     def get_permissions(self):
@@ -100,6 +109,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             appt = serializer.save(user=user)
         except IntegrityError:
             from rest_framework.exceptions import APIException
+
             err = APIException(
                 "An appointment for this service, date, and time already exists for you."
             )
@@ -122,13 +132,14 @@ class AppointmentViewSet(viewsets.ModelViewSet):
     def taken(self, request):
         date_str = request.query_params.get("date")
         if not date_str or not parse_date(date_str):
-            return Response({"detail": "Missing or invalid date (YYYY-MM-DD)."}, status=400)
+            return Response(
+                {"detail": "Missing or invalid date (YYYY-MM-DD)."}, status=400
+            )
 
         style_id = request.query_params.get("style_id")
 
         qs = (
-            Appointment.objects
-            .select_related("style")
+            Appointment.objects.select_related("style")
             .filter(datetime__date=date_str)
             .exclude(status="cancelled")
         )
@@ -174,7 +185,9 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             appt.save(update_fields=["status"])
         return Response(AppointmentSerializer(appt).data)
 
+
 # ---------------- PROFILE (me) ----------------
+
 
 class MeAppointmentsView(generics.ListAPIView):
     serializer_class = AppointmentSerializer
@@ -182,10 +195,10 @@ class MeAppointmentsView(generics.ListAPIView):
 
     def get_queryset(self):
         return (
-            Appointment.objects
-            .select_related("style")
+            Appointment.objects.select_related("style")
             .filter(user=self.request.user)
         )
+
 
 class MeProfileView(generics.RetrieveUpdateAPIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -194,9 +207,25 @@ class MeProfileView(generics.RetrieveUpdateAPIView):
     def get_object(self):
         return self.request.user
 
+
 # ---------------- STRIPE PAYMENT ----------------
 
 stripe.api_key = getattr(settings, "STRIPE_SECRET_KEY", None)
+
+
+def _frontend_base_url() -> str:
+    """
+    Return a clean frontend base URL.
+
+    Priority:
+      1) FRONTEND_BASE_URL env / settings
+      2) Hard-coded fallback to the deployed Vercel frontend
+    """
+    base = getattr(settings, "FRONTEND_BASE_URL", "").strip()
+    if not base:
+        base = "https://salon-frontend-pink.vercel.app"
+    return base.rstrip("/")
+
 
 @api_view(["POST"])
 @authentication_classes([JWTAuthentication])
@@ -226,19 +255,24 @@ def create_checkout_session(request, appointment_id: int):
     # Prepare data for success_url enrichments
     amount_str = f"{unit_amount_cents / 100:.2f}"
     style_name = getattr(appt.style, "name", "Service")
-    raw_first = (user.first_name or "").strip() or getattr(appt, "contact_name", "") or "there"
+    raw_first = (user.first_name or "").strip() or getattr(
+        appt, "contact_name", ""
+    ) or "there"
     first_name = raw_first.split(" ")[0]
     appt_dt = getattr(appt, "datetime", None)
     dt_iso = appt_dt.isoformat() if appt_dt else ""
 
     qs = (
-        f"first={quote_plus(first_name)}"
+        f"appt={appt.id}"
+        f"&first={quote_plus(first_name)}"
         f"&style={quote_plus(style_name)}"
         f"&amount={quote_plus(amount_str)}"
         f"&dt={quote_plus(dt_iso)}"
     )
 
     customer_email = getattr(user, "email", None) or None
+    frontend = _frontend_base_url()
+    print("🔍 FRONTEND_BASE_URL at runtime =", frontend)
 
     try:
         kwargs = dict(
@@ -254,8 +288,8 @@ def create_checkout_session(request, appointment_id: int):
                     "quantity": 1,
                 }
             ],
-            success_url=f"{settings.FRONTEND_BASE_URL}/payment-success?{qs}",
-            cancel_url=f"{settings.FRONTEND_BASE_URL}/payment-cancelled",
+            success_url=f"{frontend}/payment-success?{qs}",
+            cancel_url=f"{frontend}/payment-cancelled",
             metadata={
                 "appointment_id": str(appt.id),
                 "user_id": str(appt.user_id or ""),
@@ -268,6 +302,7 @@ def create_checkout_session(request, appointment_id: int):
         return JsonResponse({"url": session.url})
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
 
 @api_view(["POST"])
 def stripe_webhook(request):
