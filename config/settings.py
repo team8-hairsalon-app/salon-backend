@@ -17,6 +17,9 @@ if load_dotenv:
 # --- Security ---
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "django-insecure-change-this-in-prod")
 DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
+
+# On Render, set DJANGO_ALLOWED_HOSTS in the dashboard, e.g.:
+# salon-backend.onrender.com
 ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
 
 # --- Installed apps ---
@@ -40,6 +43,9 @@ INSTALLED_APPS = [
 # --- Middleware ---
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Serve static files efficiently in production (Render)
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+
     "django.contrib.sessions.middleware.SessionMiddleware",
 
     "corsheaders.middleware.CorsMiddleware",  # must be above CommonMiddleware
@@ -97,7 +103,12 @@ USE_TZ = True
 
 # --- Static files ---
 STATIC_URL = "static/"
+
+# Where collectstatic will put files on Render
 STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# WhiteNoise compressed/hashed static files in production
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 # --- Default PK field ---
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -120,13 +131,21 @@ SIMPLE_JWT = {
 
 # --- CORS / CSRF ---
 CORS_ALLOWED_ORIGINS = [
+    # Local Vite dev
     "http://127.0.0.1:5173",
     "http://localhost:5173",
+    # Production frontend on Vercel
+    "https://salon-frontend-pink.vercel.app",
 ]
+
 CSRF_TRUSTED_ORIGINS = [
+    # Local Vite dev
     "http://127.0.0.1:5173",
     "http://localhost:5173",
+    # Production frontend on Vercel
+    "https://salon-frontend-pink.vercel.app",
 ]
+
 CORS_ALLOW_CREDENTIALS = True
 
 # --- Email (dev: prints to console) ---
@@ -134,16 +153,18 @@ EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = "noreply@hairsalon.dev"
 
 # --- Stripe / Frontend ---
-STRIPE_SECRET_KEY = os.getenv(
-    "STRIPE_SECRET_KEY",
-    "",
+# Read ONLY from environment variables.
+# In dev: from .env
+# In prod: from Render environment settings.
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+
+# Default to the deployed frontend (Vercel) in production;
+# in local dev you can override with FRONTEND_BASE_URL=http://localhost:5173
+FRONTEND_BASE_URL = os.getenv(
+    "FRONTEND_BASE_URL",
+    "https://salon-frontend-pink.vercel.app",
 )
-STRIPE_WEBHOOK_SECRET = os.getenv(
-    "STRIPE_WEBHOOK_SECRET",
-    "",
-)
-# Use the same origin you actually browse on during dev
-FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
 
 # --- Twilio (optional; leave blank in dev to no-op SMS) ---
 TWILIO_SID = os.getenv("TWILIO_SID", "")
