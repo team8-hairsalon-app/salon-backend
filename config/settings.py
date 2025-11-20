@@ -160,27 +160,6 @@ CSRF_TRUSTED_ORIGINS = [
 
 CORS_ALLOW_CREDENTIALS = True
 
-CORS_ALLOW_HEADERS = [
-    "Accept",
-    "Accept-Encoding",
-    "Authorization",
-    "Content-Type",
-    "Origin",
-    "User-Agent",
-    "DNT",
-    "Cache-Control",
-    "X-Requested-With",
-]
-
-CORS_ALLOW_METHODS = [
-    "DELETE",
-    "GET",
-    "OPTIONS",
-    "PATCH",
-    "POST",
-    "PUT",
-]
-
 # --- Email (dev: prints to console) ---
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = "noreply@hairsalon.dev"
