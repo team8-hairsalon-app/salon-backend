@@ -298,7 +298,7 @@ def create_checkout_session(request, appointment_id: int):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-
+@csrf_exempt
 @api_view(["POST"])
 def stripe_webhook(request):
 
