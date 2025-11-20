@@ -215,14 +215,7 @@ stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
 
 def _frontend_base_url() -> str:
-    """
-    Return a clean frontend base URL.
-
-    Priority:
-      1) FRONTEND_BASE_URL env / settings
-      2) Hard-coded fallback to the deployed Vercel frontend
-    """
-    base = getattr(settings, "FRONTEND_BASE_URL", "").strip()
+    base = os.environ.get("FRONTEND_BASE_URL", "").strip()
     if not base:
         base = "https://salon-frontend-pink.vercel.app"
     return base.rstrip("/")
@@ -232,6 +225,7 @@ def _frontend_base_url() -> str:
 @authentication_classes([JWTAuthentication])
 @permission_classes([permissions.IsAuthenticated])
 def create_checkout_session(request, appointment_id: int):
+
     try:
         appt = Appointment.objects.select_related("style", "user").get(id=appointment_id)
     except Appointment.DoesNotExist:
@@ -242,26 +236,22 @@ def create_checkout_session(request, appointment_id: int):
         return JsonResponse({"error": "Not allowed."}, status=403)
 
     if not stripe.api_key:
+        print("Stripe API key missing")
         return JsonResponse({"error": "Stripe is not configured."}, status=500)
 
-    # Calculate amount from style's minimum price
     try:
-        price_min = float(getattr(appt.style, "price_min", 0) or 0)
+        price_min = float(appt.style.price_min or 0)
     except Exception:
         price_min = 0.0
-    unit_amount_cents = int(round(price_min * 100))
-    if unit_amount_cents <= 0:
+
+    unit_amount = int(round(price_min * 100))
+    if unit_amount <= 0:
         return JsonResponse({"error": "Invalid price for this service."}, status=400)
 
-    # Prepare data for success_url enrichments
-    amount_str = f"{unit_amount_cents / 100:.2f}"
-    style_name = getattr(appt.style, "name", "Service")
-    raw_first = (user.first_name or "").strip() or getattr(
-        appt, "contact_name", ""
-    ) or "there"
-    first_name = raw_first.split(" ")[0]
-    appt_dt = getattr(appt, "datetime", None)
-    dt_iso = appt_dt.isoformat() if appt_dt else ""
+    amount_str = f"{unit_amount / 100:.2f}"
+    style_name = appt.style.name
+    first_name = (user.first_name or appt.contact_name or "there").split(" ")[0]
+    dt_iso = appt.datetime.isoformat() if appt.datetime else ""
 
     qs = (
         f"appt={appt.id}"
@@ -271,12 +261,17 @@ def create_checkout_session(request, appointment_id: int):
         f"&dt={quote_plus(dt_iso)}"
     )
 
-    customer_email = getattr(user, "email", None) or None
     frontend = _frontend_base_url()
-    print("🔍 FRONTEND_BASE_URL at runtime =", frontend)
+    print("FRONTEND_BASE_URL =", frontend)
+    print("Creating Stripe session:")
+    print("    User:", user.email)
+    print("    Style:", style_name)
+    print("    Price (cents):", unit_amount)
+    print("    Appointment ID:", appt.id)
 
+    # ---------------- Create Stripe session ----------------
     try:
-        kwargs = dict(
+        session = stripe.checkout.Session.create(
             mode="payment",
             payment_method_types=["card"],
             line_items=[
@@ -284,31 +279,32 @@ def create_checkout_session(request, appointment_id: int):
                     "price_data": {
                         "currency": "usd",
                         "product_data": {"name": style_name},
-                        "unit_amount": unit_amount_cents,
+                        "unit_amount": unit_amount,
                     },
                     "quantity": 1,
                 }
             ],
             success_url=f"{frontend}/payment-success?{qs}",
             cancel_url=f"{frontend}/payment-cancelled",
-            metadata={
-                "appointment_id": str(appt.id),
-                "user_id": str(appt.user_id or ""),
-            },
+            customer_email=user.email,
+            metadata={"appointment_id": str(appt.id)},
         )
-        if customer_email:
-            kwargs["customer_email"] = customer_email
 
-        session = stripe.checkout.Session.create(**kwargs)
+        print("Stripe session created:", session.id)
         return JsonResponse({"url": session.url})
+
     except Exception as e:
+        print("Stripe error:", str(e))
         return JsonResponse({"error": str(e)}, status=500)
+
 
 
 @api_view(["POST"])
 def stripe_webhook(request):
+
     webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET")
     if not webhook_secret:
+        print("No STRIPE_WEBHOOK_SECRET found")
         return HttpResponse(status=400)
 
     payload = request.body
@@ -316,36 +312,32 @@ def stripe_webhook(request):
 
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
-    except stripe.error.SignatureVerificationError:
-        return HttpResponse(status=400)
-    except ValueError:
+    except Exception:
+        print("Webhook signature invalid")
         return HttpResponse(status=400)
 
     if event.get("type") == "checkout.session.completed":
         session = event["data"]["object"]
-        metadata = session.get("metadata") or {}
-        appt_id = metadata.get("appointment_id")
-        amount_total = session.get("amount_total") or 0
-        paid_amount = (amount_total or 0) / 100.0
+        appt_id = session.get("metadata", {}).get("appointment_id")
+        amount_total = (session.get("amount_total") or 0) / 100.0
+
+        print(f"Checkout complete for Appointment {appt_id}, amount ${amount_total}")
 
         if appt_id:
             try:
                 appt = Appointment.objects.get(id=int(appt_id))
-                # Mark as paid (works whether you have 'is_paid' or 'status')
+
+                # Mark paid
                 if hasattr(appt, "is_paid"):
                     appt.is_paid = True
                 if hasattr(appt, "status"):
                     appt.status = "paid"
-                # If your model has an amount column, record it:
-                if hasattr(appt, "amount") and not getattr(appt, "amount"):
-                    appt.amount = paid_amount
+                if hasattr(appt, "amount") and not appt.amount:
+                    appt.amount = amount_total
+
                 appt.save()
 
-                try:
-                    send_payment_confirmation(appt, paid_amount)
-                except Exception:
-                    pass
             except Appointment.DoesNotExist:
-                pass
+                print("Appointment missing for webhook")
 
     return HttpResponse(status=200)
