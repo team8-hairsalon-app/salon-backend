@@ -4,6 +4,7 @@ from django.contrib.auth.models import User
 from django.conf import settings
 from django.http import JsonResponse, HttpResponse
 from django.db import IntegrityError
+from django.views.decorators.csrf import csrf_exempt
 
 from rest_framework import generics, viewsets, permissions
 from rest_framework.response import Response
