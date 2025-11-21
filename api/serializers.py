@@ -227,6 +227,33 @@ class AppointmentSerializer(serializers.ModelSerializer):
             else:
                 appointment_dt = appointment_dt.astimezone(ny_tz)
 
-            attrs["datetime"] = appointment_dt.astimezone(pytz.UTC)
+            appointment_dt_utc = appointment_dt.astimezone(pytz.UTC)
+            attrs["datetime"] = appointment_dt_utc
+
+            if user and user.is_authenticated:
+                style = attrs.get("style")
+
+                duration = getattr(style, "duration_mins", None)
+                if not duration:
+                    duration = 60
+
+                new_start = appointment_dt_utc
+                new_end = appointment_dt_utc + timedelta(minutes=duration)
+
+                existing = Appointment.objects.filter(
+                    user=user
+                ).exclude(status="cancelled")
+
+                for appt in existing:
+                    old_start = appt.datetime
+                    old_duration = getattr(appt.style, "duration_mins", 60)
+                    old_end = old_start + timedelta(minutes=old_duration)
+
+                    overlaps = new_start < old_end and new_end > old_start
+
+                    if overlaps:
+                        raise serializers.ValidationError({
+                            "datetime": "This appointment overlaps another one of your bookings."
+                        })
 
         return attrs
