@@ -2,6 +2,7 @@ from django.contrib.auth.models import User
 from rest_framework import serializers
 from django.utils import timezone
 from datetime import timedelta
+from django.utils.timezone import make_aware
 import pytz
 
 from .models import Style, Appointment, Profile
@@ -247,7 +248,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
 
                 existing = Appointment.objects.filter(
                     user=user
-                ).exclude(status="cancelled")
+                ).exclude(status__iexact="cancelled")
 
                 for appt in existing:
                     old_start = appt.datetime
