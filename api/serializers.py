@@ -1,6 +1,8 @@
 # api/serializers.py
 from django.contrib.auth.models import User
 from rest_framework import serializers
+from django.utils import timezone
+import pytz
 
 from .models import Style, Appointment, Profile
 
@@ -174,10 +176,6 @@ class AppointmentSerializer(serializers.ModelSerializer):
         read_only_fields = ("status", "created_at", "user")
 
     def get_is_paid(self, obj):
-        """
-        True if the appointment has a boolean is_paid flag set OR
-        if the textual status is 'paid'.
-        """
         try:
             if getattr(obj, "is_paid", False):
                 return True
@@ -186,16 +184,9 @@ class AppointmentSerializer(serializers.ModelSerializer):
         return str(getattr(obj, "status", "")).lower() == "paid"
 
     def get_payment_status(self, obj):
-        """
-        Normalized string for the frontend badge.
-        """
         return "paid" if self.get_is_paid(obj) else "unpaid"
 
     def get_amount(self, obj):
-        """
-        Return appointment.amount if your model has it; otherwise fall back
-        to the style's minimum price so the UI can always show a number.
-        """
         if hasattr(obj, "amount") and getattr(obj, "amount") is not None:
             return obj.amount
         style = getattr(obj, "style", None)
@@ -203,11 +194,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         """
-        Validation rules:
-        - Name is required for everyone.
-        - Guests must provide at least one contact method (email or phone).
-        - Signed-in users: auto-fill name/email if missing.
-        - Normalize email to lowercase/trim so DB uniqueness works reliably.
+        Validation + timezone correction for datetime.
         """
         request = self.context.get("request")
         user = getattr(request, "user", None)
@@ -218,13 +205,13 @@ class AppointmentSerializer(serializers.ModelSerializer):
 
         attrs["contact_email"] = email or None
 
-        # Auto-fill for signed-in users (snapshot)
+        # Auto-fill for signed-in users
         if user and getattr(user, "is_authenticated", False):
-          if not name:
-              name = (f"{user.first_name} {user.last_name}").strip() or user.username
-              attrs["contact_name"] = name
-          if not email and user.email:
-              attrs["contact_email"] = user.email.strip().lower()
+            if not name:
+                name = (f"{user.first_name} {user.last_name}").strip() or user.username
+                attrs["contact_name"] = name
+            if not email and user.email:
+                attrs["contact_email"] = user.email.strip().lower()
 
         if not name:
             raise serializers.ValidationError({"contact_name": "Please provide your name."})
@@ -234,5 +221,13 @@ class AppointmentSerializer(serializers.ModelSerializer):
                 "contact_email": "Provide at least one contact method (email or phone).",
                 "contact_phone": "Provide at least one contact method (email or phone).",
             })
+
+        if "datetime" in attrs and attrs["datetime"] is not None:
+            appointment_dt = attrs["datetime"]  # naive datetime from React
+
+            ny_tz = pytz.timezone("America/New_York")
+
+            local_dt = ny_tz.localize(appointment_dt)
+            attrs["datetime"] = local_dt.astimezone(timezone.utc)
 
         return attrs
