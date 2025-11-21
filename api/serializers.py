@@ -193,9 +193,6 @@ class AppointmentSerializer(serializers.ModelSerializer):
         return getattr(style, "price_min", None)
 
     def validate(self, attrs):
-        """
-        Validation + timezone correction for datetime.
-        """
         request = self.context.get("request")
         user = getattr(request, "user", None)
 
@@ -205,7 +202,6 @@ class AppointmentSerializer(serializers.ModelSerializer):
 
         attrs["contact_email"] = email or None
 
-        # Auto-fill for signed-in users
         if user and getattr(user, "is_authenticated", False):
             if not name:
                 name = (f"{user.first_name} {user.last_name}").strip() or user.username
@@ -223,11 +219,14 @@ class AppointmentSerializer(serializers.ModelSerializer):
             })
 
         if "datetime" in attrs and attrs["datetime"] is not None:
-            appointment_dt = attrs["datetime"]  # naive datetime from React
-
+            appointment_dt = attrs["datetime"]
             ny_tz = pytz.timezone("America/New_York")
 
-            local_dt = ny_tz.localize(appointment_dt)
-            attrs["datetime"] = local_dt.astimezone(timezone.utc)
+            if appointment_dt.tzinfo is None:
+                appointment_dt = make_aware(appointment_dt, ny_tz)
+            else:
+                appointment_dt = appointment_dt.astimezone(ny_tz)
+
+            attrs["datetime"] = appointment_dt.astimezone(pytz.UTC)
 
         return attrs
