@@ -133,22 +133,22 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         qs = (
             Appointment.objects.select_related("style")
             .filter(datetime__date=date_str)
-            .exclude(status="cancelled")
+            .exclude(status__iexact="cancelled")
         )
         if style_id:
             qs = qs.filter(style_id=style_id)
 
-        seen = set()
         taken = []
 
         for appt in qs:
-            # Convert stored UTC -> local timezone
             local_dt = localtime(appt.datetime)
             hhmm = local_dt.strftime("%H:%M")
+            duration = appt.style.duration_mins or 60
 
-            if hhmm not in seen:
-                seen.add(hhmm)
-                taken.append(hhmm)
+            taken.append({
+                "time": hhmm,
+                "duration": duration,
+            })
 
         return Response({"date": date_str, "style_id": style_id, "taken": taken})
 
@@ -162,7 +162,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         qs = (
             self.get_queryset()
             .filter(datetime__gte=now())
-            .exclude(status="cancelled")
+            .exclude(status__iexact="cancelled")
             .order_by("datetime")
         )
 
