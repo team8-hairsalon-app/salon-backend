@@ -1,4 +1,3 @@
-# api/serializers.py
 from django.contrib.auth.models import User
 from rest_framework import serializers
 from django.utils import timezone
@@ -152,6 +151,9 @@ class AppointmentSerializer(serializers.ModelSerializer):
     style_price_min = serializers.DecimalField(
         source="style.price_min", max_digits=8, decimal_places=2, read_only=True
     )
+    style_duration_mins = serializers.IntegerField(
+        source="style.duration_mins", read_only=True
+    )
 
     class Meta:
         model = Appointment
@@ -173,8 +175,10 @@ class AppointmentSerializer(serializers.ModelSerializer):
             "payment_status",
             "amount",
             "style_price_min",
+            "style_duration_mins",
         )
         read_only_fields = ("status", "created_at", "user")
+
 
     def get_is_paid(self, obj):
         try:
