@@ -1,11 +1,9 @@
+# api/serializers.py
 from django.contrib.auth.models import User
 from rest_framework import serializers
-from django.utils import timezone
-from datetime import timedelta
-from django.utils.timezone import make_aware
-import pytz
 
 from .models import Style, Appointment, Profile
+
 
 # ---------- Register ----------
 class RegisterSerializer(serializers.ModelSerializer):
@@ -152,9 +150,6 @@ class AppointmentSerializer(serializers.ModelSerializer):
     style_price_min = serializers.DecimalField(
         source="style.price_min", max_digits=8, decimal_places=2, read_only=True
     )
-    style_duration_mins = serializers.IntegerField(
-        source="style.duration_mins", read_only=True
-    )
 
     class Meta:
         model = Appointment
@@ -176,12 +171,14 @@ class AppointmentSerializer(serializers.ModelSerializer):
             "payment_status",
             "amount",
             "style_price_min",
-            "style_duration_mins",
         )
         read_only_fields = ("status", "created_at", "user")
 
-
     def get_is_paid(self, obj):
+        """
+        True if the appointment has a boolean is_paid flag set OR
+        if the textual status is 'paid'.
+        """
         try:
             if getattr(obj, "is_paid", False):
                 return True
@@ -190,15 +187,29 @@ class AppointmentSerializer(serializers.ModelSerializer):
         return str(getattr(obj, "status", "")).lower() == "paid"
 
     def get_payment_status(self, obj):
+        """
+        Normalized string for the frontend badge.
+        """
         return "paid" if self.get_is_paid(obj) else "unpaid"
 
     def get_amount(self, obj):
+        """
+        Return appointment.amount if your model has it; otherwise fall back
+        to the style's minimum price so the UI can always show a number.
+        """
         if hasattr(obj, "amount") and getattr(obj, "amount") is not None:
             return obj.amount
         style = getattr(obj, "style", None)
         return getattr(style, "price_min", None)
 
     def validate(self, attrs):
+        """
+        Validation rules:
+        - Name is required for everyone.
+        - Guests must provide at least one contact method (email or phone).
+        - Signed-in users: auto-fill name/email if missing.
+        - Normalize email to lowercase/trim so DB uniqueness works reliably.
+        """
         request = self.context.get("request")
         user = getattr(request, "user", None)
 
@@ -208,6 +219,7 @@ class AppointmentSerializer(serializers.ModelSerializer):
 
         attrs["contact_email"] = email or None
 
+        # Auto-fill for signed-in users (snapshot)
         if user and getattr(user, "is_authenticated", False):
             if not name:
                 name = (f"{user.first_name} {user.last_name}").strip() or user.username
@@ -216,50 +228,16 @@ class AppointmentSerializer(serializers.ModelSerializer):
                 attrs["contact_email"] = user.email.strip().lower()
 
         if not name:
-            raise serializers.ValidationError({"contact_name": "Please provide your name."})
+            raise serializers.ValidationError(
+                {"contact_name": "Please provide your name."}
+            )
 
         if not (attrs.get("contact_email") or phone):
-            raise serializers.ValidationError({
-                "contact_email": "Provide at least one contact method (email or phone).",
-                "contact_phone": "Provide at least one contact method (email or phone).",
-            })
-
-        if "datetime" in attrs and attrs["datetime"] is not None:
-            appointment_dt = attrs["datetime"]
-            ny_tz = pytz.timezone("America/New_York")
-
-            if appointment_dt.tzinfo is None:
-                appointment_dt = make_aware(appointment_dt, ny_tz)
-            else:
-                appointment_dt = appointment_dt.astimezone(ny_tz)
-
-            appointment_dt_utc = appointment_dt.astimezone(pytz.UTC)
-            attrs["datetime"] = appointment_dt_utc
-
-            if user and user.is_authenticated:
-                style = attrs.get("style")
-
-                duration = getattr(style, "duration_mins", None)
-                if not duration:
-                    duration = 60
-
-                new_start = appointment_dt_utc
-                new_end = appointment_dt_utc + timedelta(minutes=duration)
-
-                existing = Appointment.objects.filter(
-                    user=user
-                ).exclude(status__iexact="cancelled")
-
-                for appt in existing:
-                    old_start = appt.datetime
-                    old_duration = getattr(appt.style, "duration_mins", 60)
-                    old_end = old_start + timedelta(minutes=old_duration)
-
-                    overlaps = new_start < old_end and new_end > old_start
-
-                    if overlaps:
-                        raise serializers.ValidationError({
-                            "datetime": "This appointment overlaps another one of your bookings."
-                        })
+            raise serializers.ValidationError(
+                {
+                    "contact_email": "Provide at least one contact method (email or phone).",
+                    "contact_phone": "Provide at least one contact method (email or phone).",
+                }
+            )
 
         return attrs
