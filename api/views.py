@@ -1,5 +1,5 @@
 # api/views.py
-from django.utils.timezone import now
+from django.utils.timezone import now, localtime
 from django.contrib.auth.models import User
 from django.conf import settings
 from django.http import JsonResponse, HttpResponse
@@ -34,9 +34,8 @@ from .models import Style, Appointment
 from .notifications import send_booking_confirmation, send_payment_confirmation
 import os
 
+
 # ---------------- AUTH ----------------
-
-
 class RegisterView(generics.CreateAPIView):
     permission_classes = [permissions.AllowAny]
     serializer_class = RegisterSerializer
@@ -70,8 +69,6 @@ class MyTokenRefreshView(TokenRefreshView):
 
 
 # ---------------- STYLES ----------------
-
-
 class StyleViewSet(viewsets.ModelViewSet):
     queryset = Style.objects.all().order_by("name")
     serializer_class = StyleSerializer
@@ -80,15 +77,7 @@ class StyleViewSet(viewsets.ModelViewSet):
 
 
 # ---------------- APPOINTMENTS ----------------
-
-
 class AppointmentViewSet(viewsets.ModelViewSet):
-    """
-    - Anyone can create.
-    - Authenticated users can list/view/modify their own.
-    - Staff can view all.
-    """
-
     serializer_class = AppointmentSerializer
 
     def get_permissions(self):
@@ -113,17 +102,17 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             from rest_framework.exceptions import APIException
 
             err = APIException(
-                "An appointment for this service, date, and time already exists for you."
+                "An appointment for this service, date, and time already exists."
             )
             err.status_code = 409
             raise err
 
-        # fire-and-forget confirmation
         try:
             send_booking_confirmation(appt)
         except Exception:
             pass
 
+    # ---------------- TAKEN SLOTS (LOCAL TIME) ----------------
     @action(
         detail=False,
         methods=["get"],
@@ -135,7 +124,8 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         date_str = request.query_params.get("date")
         if not date_str or not parse_date(date_str):
             return Response(
-                {"detail": "Missing or invalid date (YYYY-MM-DD)."}, status=400
+                {"detail": "Missing or invalid date (YYYY-MM-DD)."},
+                status=400
             )
 
         style_id = request.query_params.get("style_id")
@@ -150,31 +140,41 @@ class AppointmentViewSet(viewsets.ModelViewSet):
 
         seen = set()
         taken = []
+
         for appt in qs:
-            hhmm = appt.datetime.strftime("%H:%M")
+            # Convert stored UTC -> local timezone
+            local_dt = localtime(appt.datetime)
+            hhmm = local_dt.strftime("%H:%M")
+
             if hhmm not in seen:
                 seen.add(hhmm)
                 taken.append(hhmm)
 
         return Response({"date": date_str, "style_id": style_id, "taken": taken})
 
+    # ---------------- UPCOMING (LOCAL TIME) ----------------
     @action(
         detail=False,
         methods=["get"],
         permission_classes=[permissions.IsAuthenticated],
     )
     def upcoming(self, request):
-        """
-        Future appointments for this user, excluding cancelled ones.
-        """
         qs = (
             self.get_queryset()
             .filter(datetime__gte=now())
             .exclude(status="cancelled")
             .order_by("datetime")
         )
-        return Response(AppointmentSerializer(qs, many=True).data)
 
+        # Convert all datetimes to local before serialization
+        appts = []
+        for appt in qs:
+            appt.datetime = localtime(appt.datetime)
+            appts.append(appt)
+
+        return Response(AppointmentSerializer(appts, many=True).data)
+
+    # ---------------- CANCEL APPOINTMENT ----------------
     @action(
         detail=True,
         methods=["post"],
@@ -185,21 +185,23 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         if appt.status != "cancelled":
             appt.status = "cancelled"
             appt.save(update_fields=["status"])
+        appt.datetime = localtime(appt.datetime)
         return Response(AppointmentSerializer(appt).data)
 
 
-# ---------------- PROFILE (me) ----------------
-
-
+# ---------------- PROFILE ----------------
 class MeAppointmentsView(generics.ListAPIView):
     serializer_class = AppointmentSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return (
+        qs = (
             Appointment.objects.select_related("style")
             .filter(user=self.request.user)
         )
+        for appt in qs:
+            appt.datetime = localtime(appt.datetime)
+        return qs
 
 
 class MeProfileView(generics.RetrieveUpdateAPIView):
@@ -236,10 +238,6 @@ def create_checkout_session(request, appointment_id: int):
     if not user.is_staff and appt.user_id != user.id:
         return JsonResponse({"error": "Not allowed."}, status=403)
 
-    if not stripe.api_key:
-        print("Stripe API key missing")
-        return JsonResponse({"error": "Stripe is not configured."}, status=500)
-
     try:
         price_min = float(appt.style.price_min or 0)
     except Exception:
@@ -249,28 +247,22 @@ def create_checkout_session(request, appointment_id: int):
     if unit_amount <= 0:
         return JsonResponse({"error": "Invalid price for this service."}, status=400)
 
-    amount_str = f"{unit_amount / 100:.2f}"
     style_name = appt.style.name
     first_name = (user.first_name or appt.contact_name or "there").split(" ")[0]
-    dt_iso = appt.datetime.isoformat() if appt.datetime else ""
+
+    # Convert datetime to local before sending to frontend
+    dt_local = localtime(appt.datetime).isoformat()
 
     qs = (
         f"appt={appt.id}"
         f"&first={quote_plus(first_name)}"
         f"&style={quote_plus(style_name)}"
-        f"&amount={quote_plus(amount_str)}"
-        f"&dt={quote_plus(dt_iso)}"
+        f"&amount={quote_plus(f'{unit_amount/100:.2f}')}"
+        f"&dt={quote_plus(dt_local)}"
     )
 
     frontend = _frontend_base_url()
-    print("FRONTEND_BASE_URL =", frontend)
-    print("Creating Stripe session:")
-    print("    User:", user.email)
-    print("    Style:", style_name)
-    print("    Price (cents):", unit_amount)
-    print("    Appointment ID:", appt.id)
 
-    # ---------------- Create Stripe session ----------------
     try:
         session = stripe.checkout.Session.create(
             mode="payment",
@@ -291,13 +283,13 @@ def create_checkout_session(request, appointment_id: int):
             metadata={"appointment_id": str(appt.id)},
         )
 
-        print("Stripe session created:", session.id)
         return JsonResponse({"url": session.url})
 
     except Exception as e:
-        print("Stripe error:", str(e))
         return JsonResponse({"error": str(e)}, status=500)
 
+
+# ---------------- STRIPE WEBHOOK ----------------
 
 @csrf_exempt
 @api_view(["POST"])
@@ -305,7 +297,6 @@ def stripe_webhook(request):
 
     webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET")
     if not webhook_secret:
-        print("No STRIPE_WEBHOOK_SECRET found")
         return HttpResponse(status=400)
 
     payload = request.body
@@ -314,7 +305,6 @@ def stripe_webhook(request):
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
     except Exception:
-        print("Webhook signature invalid")
         return HttpResponse(status=400)
 
     if event.get("type") == "checkout.session.completed":
@@ -322,23 +312,15 @@ def stripe_webhook(request):
         appt_id = session.get("metadata", {}).get("appointment_id")
         amount_total = (session.get("amount_total") or 0) / 100.0
 
-        print(f"Checkout complete for Appointment {appt_id}, amount ${amount_total}")
-
         if appt_id:
             try:
                 appt = Appointment.objects.get(id=int(appt_id))
-
-                # Mark paid
-                if hasattr(appt, "is_paid"):
-                    appt.is_paid = True
-                if hasattr(appt, "status"):
-                    appt.status = "paid"
-                if hasattr(appt, "amount") and not appt.amount:
-                    appt.amount = amount_total
-
+                appt.status = "paid"
+                appt.is_paid = True
+                appt.amount = amount_total
                 appt.save()
 
             except Appointment.DoesNotExist:
-                print("Appointment missing for webhook")
+                pass
 
     return HttpResponse(status=200)
