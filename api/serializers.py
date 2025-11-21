@@ -2,6 +2,7 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
 from django.utils import timezone
+from datetime import timedelta
 import pytz
 
 from .models import Style, Appointment, Profile
