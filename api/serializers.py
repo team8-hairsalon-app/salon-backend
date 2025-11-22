@@ -3,6 +3,10 @@ from django.contrib.auth.models import User
 from rest_framework import serializers
 
 from .models import Style, Appointment, Profile
+from django.utils import timezone
+from datetime import timedelta
+from django.utils.timezone import make_aware
+import pytz
 
 
 # ---------- Register ----------
