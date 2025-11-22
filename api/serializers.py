@@ -233,11 +233,86 @@ class AppointmentSerializer(serializers.ModelSerializer):
             )
 
         if not (attrs.get("contact_email") or phone):
-            raise serializers.ValidationError(
-                {
-                    "contact_email": "Provide at least one contact method (email or phone).",
-                    "contact_phone": "Provide at least one contact method (email or phone).",
-                }
-            )
+            raise serializers.ValidationError({
+                "contact_email": "Provide at least one contact method (email or phone).",
+                "contact_phone": "Provide at least one contact method (email or phone).",
+            })
+
+        if "datetime" in attrs and attrs["datetime"] is not None:
+            appointment_dt = attrs["datetime"]
+            ny_tz = pytz.timezone("America/New_York")
+
+            if appointment_dt.tzinfo is None:
+                appointment_dt = make_aware(appointment_dt, ny_tz)
+            else:
+                appointment_dt = appointment_dt.astimezone(ny_tz)
+
+            appointment_dt_utc = appointment_dt.astimezone(pytz.UTC)
+            attrs["datetime"] = appointment_dt_utc
+
+            # --- Overlap prevention ---
+            style = attrs.get("style")
+            duration = getattr(style, "duration_mins", None)
+            if not duration:
+                duration = 60
+
+            new_start = appointment_dt_utc
+            new_end = appointment_dt_utc + timedelta(minutes=duration)
+
+            # CASE A — logged-in user
+            if user and user.is_authenticated:
+                existing = Appointment.objects.filter(
+                    user=user
+                ).exclude(status__iexact="cancelled")
+
+            # CASE B — guest with email
+            elif email:
+                existing = Appointment.objects.filter(
+                    contact_email__iexact=email
+                ).exclude(status__iexact="cancelled")
+
+            # CASE C — guest with phone
+            elif phone:
+                existing = Appointment.objects.filter(
+                    contact_phone=phone
+                ).exclude(status__iexact="cancelled")
+
+            # CASE D — no identity (should not happen due to earlier validation)
+            else:
+                existing = Appointment.objects.none()
+            
+            # Business hours check (local time)
+            local_start = appointment_dt
+            dow = local_start.weekday()
+
+            # Sunday closed
+            if dow == 6:
+                raise serializers.ValidationError({
+                    "datetime": "The salon is closed on Sundays."
+                })
+
+            open_hour = 9
+            close_hour = 18 if dow == 5 else 19
+
+            start_mins = local_start.hour * 60 + local_start.minute
+            end_mins = start_mins + duration
+
+            if start_mins < open_hour * 60 or end_mins > close_hour * 60:
+                raise serializers.ValidationError({
+                    "datetime": "This appointment must start and end within business hours."
+                })
+
+            # Overlap detection
+            for appt in existing:
+                old_start = appt.datetime
+                old_duration = getattr(appt.style, "duration_mins", 60)
+                old_end = old_start + timedelta(minutes=old_duration)
+
+                overlaps = new_start < old_end and new_end > old_start
+
+                if overlaps:
+                    raise serializers.ValidationError({
+                        "datetime": "This appointment overlaps another one of your bookings."
+                    })
 
         return attrs

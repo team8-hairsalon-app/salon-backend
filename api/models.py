@@ -53,14 +53,23 @@ class Appointment(models.Model):
             # Prevent duplicate for signed-in users (same user+style+datetime)
             models.UniqueConstraint(
                 fields=["user", "style", "datetime"],
-                name="unique_user_style_when_datetime",
-                condition=Q(user__isnull=False),
+                name="unique_user_style_when_datetime_active",
+                condition=(
+                    Q(user__isnull=False) &
+                    ~Q(status__iexact="cancelled")
+                ),
             ),
+
             # Prevent duplicate for guests by email (same email+style+datetime)
             models.UniqueConstraint(
                 fields=["contact_email", "style", "datetime"],
-                name="unique_guest_email_style_when_datetime",
-                condition=Q(user__isnull=True) & ~Q(contact_email="") & Q(contact_email__isnull=False),
+                name="unique_guest_email_style_when_datetime_active",
+                condition=(
+                    Q(user__isnull=True) &
+                    Q(contact_email__isnull=False) &
+                    ~Q(contact_email__exact="") &
+                    ~Q(status__iexact="cancelled")
+                ),
             ),
         ]
 

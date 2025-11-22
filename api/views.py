@@ -5,6 +5,7 @@ from django.conf import settings
 from django.http import JsonResponse, HttpResponse
 from django.db import IntegrityError
 from django.views.decorators.csrf import csrf_exempt
+from datetime import timedelta
 
 from rest_framework import generics, viewsets, permissions
 from rest_framework.response import Response
@@ -33,6 +34,7 @@ from .serializers import (
 from .models import Style, Appointment
 from .notifications import send_booking_confirmation, send_payment_confirmation
 import os
+from math import ceil
 
 
 # ---------------- AUTH ----------------
@@ -112,7 +114,7 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         except Exception:
             pass
 
-    # ---------------- TAKEN SLOTS (LOCAL TIME) ----------------
+   # ---------------- TAKEN SLOTS (LOCAL TIME, FULL DETAILS) ----------------
     @action(
         detail=False,
         methods=["get"],
@@ -141,16 +143,30 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         taken = []
 
         for appt in qs:
+            # Convert to local timezone
             local_dt = localtime(appt.datetime)
-            hhmm = local_dt.strftime("%H:%M")
+            start_time = local_dt.strftime("%H:%M")
+
             duration = appt.style.duration_mins or 60
+            blocks = ceil(duration / 30)
 
-            taken.append({
-                "time": hhmm,
-                "duration": duration,
-            })
+            # Generate all affected 30-minute blocks
+            for i in range(blocks):
+                slot_dt = local_dt + timedelta(minutes=i * 30)
+                hhmm = slot_dt.strftime("%H:%M")
 
-        return Response({"date": date_str, "style_id": style_id, "taken": taken})
+                taken.append({
+                    "time": hhmm,
+                    "duration": duration,
+                    "contact_email": appt.contact_email,
+                    "contact_phone": appt.contact_phone,
+                })
+
+        return Response({
+            "date": date_str,
+            "style_id": style_id,
+            "taken": taken
+        })
 
     # ---------------- UPCOMING (LOCAL TIME) ----------------
     @action(
