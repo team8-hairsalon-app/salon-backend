@@ -185,7 +185,8 @@ class AppointmentViewSet(viewsets.ModelViewSet):
         # Convert all datetimes to local before serialization
         appts = []
         for appt in qs:
-            appt.datetime = localtime(appt.datetime)
+            local_dt = localtime(appt.datetime)
+            appt.datetime = local_dt.replace(second=0, microsecond=0)
             appts.append(appt)
 
         return Response(AppointmentSerializer(appts, many=True).data)
