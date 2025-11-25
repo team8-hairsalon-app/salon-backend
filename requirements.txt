@@ -17,3 +17,4 @@ gunicorn
 whitenoise[brotli]
 stripe
 pytz
+requests

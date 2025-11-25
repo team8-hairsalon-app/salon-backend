@@ -111,10 +111,10 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             raise err
 
         #Send email confirmation
-        try:
-            send_booking_confirmation_email(appt)
-        except Exception:
-            pass
+        #try:
+            #send_booking_confirmation_email(appt)
+        #except Exception:
+        #   pass
 
    # ---------------- TAKEN SLOTS (LOCAL TIME, FULL DETAILS) ----------------
     @action(
