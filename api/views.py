@@ -32,7 +32,8 @@ from .serializers import (
     AppointmentSerializer,
 )
 from .models import Style, Appointment
-from .notifications import send_booking_confirmation, send_payment_confirmation
+from .notifications import send_booking_confirmation_email
+
 import os
 from math import ceil
 
@@ -109,8 +110,9 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             err.status_code = 409
             raise err
 
+        #Send email confirmation
         try:
-            send_booking_confirmation(appt)
+            send_booking_confirmation_email(appt)
         except Exception:
             pass
 

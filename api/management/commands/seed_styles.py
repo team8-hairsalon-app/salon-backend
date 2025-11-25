@@ -92,6 +92,3 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f"Seeding complete. Created: {created}, Updated: {updated}."
         ))
-
-        
-        print("Check your styles at: http://localhost:8000/api/styles/")
