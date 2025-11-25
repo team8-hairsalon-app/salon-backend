@@ -1,74 +1,37 @@
-# api/notifications.py
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
+from django.utils.timezone import localtime
 from django.conf import settings
 
-def _send_email(to_email: str, subject: str, message: str):
-    if not to_email:
+
+def send_booking_confirmation_email(appt):
+    """Send HTML booking confirmation email."""
+
+    to = appt.contact_email or None
+    if not to:
         return
+
+    dt_local = localtime(appt.datetime).strftime("%B %d, %Y at %I:%M %p")
+
+    context = {
+        "name": appt.contact_name or "there",
+        "style_name": appt.style.name,
+        "datetime": dt_local,
+    }
+
+    subject = f"Booking Confirmed — {appt.style.name}"
+
     try:
-        send_mail(
-            subject,
-            message,
-            settings.DEFAULT_FROM_EMAIL,
-            [to_email],
-            fail_silently=True,
+        html_body = render_to_string("booking_confirmation.html", context)
+
+        msg = EmailMultiAlternatives(
+            subject=subject,
+            body="",
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[to],
         )
-    except Exception:
-        pass
+        msg.attach_alternative(html_body, "text/html")
+        msg.send(fail_silently=True)
 
-def _send_sms(to_number: str, body: str):
-    sid = getattr(settings, "TWILIO_SID", "")
-    token = getattr(settings, "TWILIO_AUTH_TOKEN", "")
-    from_num = getattr(settings, "TWILIO_PHONE_NUMBER", "")
-    if not (sid and token and from_num and to_number):
-        return
-    try:
-        from twilio.rest import Client
-        Client(sid, token).messages.create(
-            to=to_number,
-            from_=from_num,
-            body=body,
-        )
-    except Exception:
-        pass
-
-def send_booking_confirmation(appt):
-    """
-    Email/SMS right after an appointment is created.
-    Slots are enforced, so we confirm immediately.
-    """
-    service = getattr(appt.style, "name", "Service")
-    dt = appt.datetime.strftime("%Y-%m-%d %H:%M")
-    name = appt.contact_name or "there"
-
-    subject = "Your Hair Salon appointment is confirmed"
-    message = (
-        f"Hi {name},\n\n"
-        f"Your appointment for {service} on {dt} is confirmed.\n"
-        f"If anything changes before your appointment, we’ll notify you in advance.\n\n"
-        f"Please do not reply to this email. For assistance, contact the salon using the phone or email listed on our website.\n\n"
-        f"— Hair Salon"
-    )
-
-    _send_email(appt.contact_email or "", subject, message)
-    _send_sms(appt.contact_phone or "", message)
-
-def send_payment_confirmation(appt, amount: float):
-    """
-    Email acknowledgement when Stripe marks the appointment as paid.
-    """
-    service = getattr(appt.style, "name", "Service")
-    dt = appt.datetime.strftime("%Y-%m-%d %H:%M")
-    name = appt.contact_name or "there"
-    amt = f"${amount:,.2f}"
-
-    subject = "Payment received – Hair Salon"
-    message = (
-        f"Hi {name},\n\n"
-        f"Thank you for your payment of {amt} for {service}. "
-        f"Your appointment on {dt} has been successfully confirmed.\n"
-        f"If anything changes before your appointment, we’ll notify you in advance.\n\n"
-        f"Please do not reply to this email. For assistance, contact the salon using the phone number or email listed on our website.\n\n"
-        f"— Hair Salon"
-    )
-    _send_email(appt.contact_email or "", subject, message)
+    except Exception as e:
+        raise
